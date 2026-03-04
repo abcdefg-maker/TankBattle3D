@@ -227,31 +227,6 @@ class EffectsManager {
         this.muzzleFlashes.push({ light, timer: 0.08 });
     }
 
-    // 坦克被击中闪烁效果
-    createHitFlash(tank) {
-        if (!tank.alive || !tank.group) return;
-        tank.group.traverse(child => {
-            if (child.isMesh && child.material && !child.material.transparent) {
-                child.material.emissive = new THREE.Color(0xff0000);
-                child.material.emissiveIntensity = 0.5;
-                setTimeout(() => {
-                    if (child.material) {
-                        child.material.emissive = new THREE.Color(0x000000);
-                        child.material.emissiveIntensity = 0;
-                    }
-                }, 150);
-            }
-        });
-    }
-
-    // 击中坦克：爆炸 + 黑烟 + 金属火星四溅 + 装甲碎片
-    createTankHitEffect(position) {
-        this.createExplosion(position, 'medium');
-        this.createSmoke(position, 0x222222, 8);
-        this.createSparks(position, 20, 0xFFAA00);
-        this.createDebris(position, 'metal', 6);
-    }
-
     // 击中砖墙：小爆炸 + 土黄尘雾 + 砖块碎屑
     createBrickHitEffect(position) {
         this.createExplosion(position, 'small');
@@ -271,14 +246,6 @@ class EffectsManager {
         this.createSmoke(position, 0x111111, 12);
         this.createSparks(position, 15, 0xFF6600);
         this.createDebris(position, 'concrete', 8);
-    }
-
-    // 坦克击杀：更大的综合效果
-    createTankDestroyEffect(position) {
-        this.createExplosion(position, 'large');
-        this.createSmoke(position, 0x111111, 15);
-        this.createSparks(position, 30, 0xFFAA00);
-        this.createDebris(position, 'metal', 12);
     }
 
     update(deltaTime) {

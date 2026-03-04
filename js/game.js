@@ -1,4 +1,4 @@
-// game.js - 游戏核心逻辑（平地版本）
+// game.js - 游戏核心逻辑（高层调度器）
 class Game {
     constructor() {
         // Three.js 核心
@@ -9,13 +9,12 @@ class Game {
 
         // 游戏系统
         this.gameMap = null;
-        this.bulletManager = null;
         this.collisionSystem = null;
         this.effectsManager = null;
         this.powerupManager = null;
         this.audioManager = null;
         this.uiManager = null;
-        this.enemySpawner = null;
+        this.tankManager = null;
 
         // 游戏状态
         this.state = 'menu';
@@ -24,17 +23,12 @@ class Game {
         this.kills = 0;
         this.playerLives = 3;
 
-        // 实体
-        this.playerTank = null;
-        this.enemyTanks = [];
-        this.enemyAIs = [];
-
         // 输入
         this.keys = {};
         this.mouse = { x: 0, y: 0 };
-        this.mouseDeltaX = 0; // 鼠标帧间移动量
-        this.zoomTurretAngle = 0; // 瞄准镜模式下的炮塔角度
-        this.zoomTurretSpeed = 2.5; // 瞄准镜模式下的固定旋转速度（弧度/秒/像素归一化）
+        this.mouseDeltaX = 0;
+        this.zoomTurretAngle = 0;
+        this.zoomTurretSpeed = 2.5;
         this.raycaster = new THREE.Raycaster();
         this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
@@ -82,11 +76,21 @@ class Game {
         this.audioManager = new AudioManager();
         this.uiManager = new UIManager();
         this.gameMap = new GameMap(this.scene);
-        this.bulletManager = new BulletManager(this.scene);
         this.collisionSystem = new CollisionSystem(this.gameMap);
         this.effectsManager = new EffectsManager(this.scene);
         this.powerupManager = new PowerUpManager(this.scene);
-        this.enemySpawner = new EnemySpawner();
+
+        // 初始化坦克管理器
+        this.tankManager = new TankManager(this.scene, this.effectsManager, this.audioManager, this.collisionSystem);
+        this.tankManager.onEnemyKilled = (enemy, deathPos) => {
+            this.score += enemy.type === 'heavy' ? 200 : enemy.type === 'elite' ? 150 : 100;
+            this.kills++;
+            this.uiManager.updateScore(this.score);
+            this.powerupManager.trySpawnAt(deathPos);
+        };
+        this.onEnemyHitSetup();
+        this.tankManager.onPlayerKilled = () => { this.onPlayerDeath(); };
+        this.tankManager.onPlayerHit = () => {};
 
         // 事件监听
         this.setupInputListeners();
@@ -100,6 +104,13 @@ class Game {
 
         // 启动渲染循环
         this.animate();
+    }
+
+    onEnemyHitSetup() {
+        this.tankManager.onEnemyHit = (enemy, position) => {
+            this.score += 10;
+            this.uiManager.updateScore(this.score);
+        };
     }
 
     setupLights() {
@@ -142,7 +153,6 @@ class Game {
         document.addEventListener('mousemove', (e) => {
             this.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
             this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-            // 记录鼠标水平移动增量（像素归一化到屏幕宽度）
             this.mouseDeltaX += e.movementX / window.innerWidth;
         });
 
@@ -211,11 +221,10 @@ class Game {
         this.clearEntities();
         this.gameMap.loadOpenWorld();
 
-        this.playerTank = new Tank(this.scene, {
-            type: 'player', hp: 1, speed: 8, rotSpeed: 3,
-            color: 0x4a7c59, shootCooldown: 1.8
-        });
-        this.playerTank.setPosition(0, 0);
+        this.tankManager.createPlayerTank(
+            { type: 'player', hp: 1, speed: 8, rotSpeed: 3, color: 0x4a7c59, shootCooldown: 1.8 },
+            { x: 0, z: 0 }
+        );
 
         this.uiManager.showGameHud();
         this.uiManager.updateScore(0);
@@ -235,18 +244,13 @@ class Game {
         this.playerSpawnPos = levelData.playerSpawn;
 
         // 创建玩家坦克
-        this.playerTank = new Tank(this.scene, {
-            type: 'player',
-            hp: 1,
-            speed: 5,
-            rotSpeed: 3,
-            color: 0x4a7c59,
-            shootCooldown: 2.0
-        });
-        this.playerTank.setPosition(this.playerSpawnPos.x, this.playerSpawnPos.z);
+        this.tankManager.createPlayerTank(
+            { type: 'player', hp: 1, speed: 5, rotSpeed: 3, color: 0x4a7c59, shootCooldown: 2.0 },
+            this.playerSpawnPos
+        );
 
         // 初始化敌人生成器
-        this.enemySpawner.init(levelData);
+        this.tankManager.initSpawner(levelData);
 
         // 更新UI
         this.uiManager.showGameHud();
@@ -266,52 +270,13 @@ class Game {
     }
 
     clearEntities() {
-        if (this.playerTank) {
-            this.playerTank.destroy();
-            this.playerTank = null;
-        }
-        this.enemyTanks.forEach(e => e.destroy());
-        this.enemyTanks = [];
-        this.enemyAIs = [];
-        this.bulletManager.clear();
+        this.tankManager.clear();
         this.effectsManager.clear();
         this.powerupManager.clear();
     }
 
-    spawnEnemy(type, candidates) {
-        let options = {};
-        switch (type) {
-            case 'normal':
-                options = { type: 'normal', hp: 1, speed: 3, rotSpeed: 2, color: 0x888888, shootCooldown: 2.2 };
-                break;
-            case 'elite':
-                options = { type: 'elite', hp: 1, speed: 5, rotSpeed: 3, color: 0xcc3333, shootCooldown: 1.5 };
-                break;
-            case 'heavy':
-                options = { type: 'heavy', hp: 2, speed: 2.5, rotSpeed: 1.5, color: 0x991111, shootCooldown: 3.0 };
-                break;
-        }
-
-        const allTanks = [this.playerTank, ...this.enemyTanks].filter(t => t && t.alive);
-
-        for (const position of candidates) {
-            const enemy = new Tank(this.scene, options);
-            enemy.setPosition(position.x, position.z);
-
-            if (this.collisionSystem.canTankMoveTo(enemy, enemy.getPosition(), allTanks)) {
-                this.enemyTanks.push(enemy);
-                this.enemyAIs.push(new EnemyAI());
-                this.enemySpawner.confirmSpawn();
-                return;
-            }
-            enemy.destroy();
-        }
-    }
-
     updateEnemyCount() {
-        const alive = this.enemyTanks.filter(e => e.alive).length;
-        const remaining = this.enemySpawner.getRemainingCount();
-        this.uiManager.updateEnemies(alive + remaining);
+        this.uiManager.updateEnemies(this.tankManager.getRemainingEnemyCount());
     }
 
     pauseGame() {
@@ -392,11 +357,12 @@ class Game {
     }
 
     updatePlayerInput(deltaTime) {
-        if (!this.playerTank || !this.playerTank.alive) return;
+        const tank = this.tankManager.getPlayerTank();
+        if (!tank || !tank.alive) return;
 
-        this.playerTank.update(deltaTime);
+        tank.update(deltaTime);
 
-        const allTanks = [this.playerTank, ...this.enemyTanks];
+        const allTanks = this.tankManager.getAllTanks();
 
         // 放大瞄准时移动减速
         const speedMult = this.isZooming ? this.zoomMoveSpeedMult : 1.0;
@@ -407,9 +373,9 @@ class Game {
         if (this.keys['KeyS'] || this.keys['ArrowDown']) forward = -1;
 
         if (forward !== 0) {
-            const newPos = this.playerTank.calcMovePosition(forward * speedMult, deltaTime);
-            if (this.collisionSystem.canTankMoveTo(this.playerTank, newPos, allTanks)) {
-                this.playerTank.applyPosition(newPos);
+            const newPos = tank.calcMovePosition(forward * speedMult, deltaTime);
+            if (this.collisionSystem.canTankMoveTo(tank, newPos, allTanks)) {
+                tank.applyPosition(newPos);
             }
         }
 
@@ -418,116 +384,38 @@ class Game {
         if (this.keys['KeyA'] || this.keys['ArrowLeft']) rotDir = 1;
         if (this.keys['KeyD'] || this.keys['ArrowRight']) rotDir = -1;
         if (rotDir !== 0) {
-            this.playerTank.rotate(rotDir * speedMult, deltaTime);
+            tank.rotate(rotDir * speedMult, deltaTime);
         }
 
         // 鼠标控制炮塔
         if (this.isZooming) {
-            // 瞄准镜模式：用鼠标移动增量以固定角速度旋转炮塔
             this.zoomTurretAngle -= this.mouseDeltaX * this.zoomTurretSpeed;
-            this.playerTank.setTurretRotation(this.zoomTurretAngle);
+            tank.setTurretRotation(this.zoomTurretAngle);
         } else {
-            // 正常模式：raycast 到地面
             this.raycaster.setFromCamera(new THREE.Vector2(this.mouse.x, this.mouse.y), this.camera);
             const intersectPoint = new THREE.Vector3();
             if (this.raycaster.ray.intersectPlane(this.groundPlane, intersectPoint)) {
-                const tankPos = this.playerTank.getPosition();
+                const tankPos = tank.getPosition();
                 const angle = Math.atan2(-(intersectPoint.x - tankPos.x), -(intersectPoint.z - tankPos.z));
-                this.playerTank.setTurretRotation(angle);
-                // 同步记录当前角度，进入瞄准镜时无跳变
+                tank.setTurretRotation(angle);
                 this.zoomTurretAngle = angle;
             }
         }
-        this.mouseDeltaX = 0; // 每帧消耗掉增量
+        this.mouseDeltaX = 0;
 
         // 射击
-        if (this.keys['Space'] && this.playerTank.canShoot()) {
-            this.playerTank.resetShootCooldown();
-            this.playerTank.startRecoil();
-            const pos = this.playerTank.getBarrelTipPosition();
-            const dir = this.playerTank.getShootDirection();
-            this.bulletManager.shoot(pos, dir, 'player');
-            this.effectsManager.createMuzzleFlash(pos);
-            this.audioManager.playShoot();
+        if (this.keys['Space']) {
+            this.tankManager.playerShoot();
         }
     }
 
     updateEnemies(deltaTime) {
-        const aliveCount = this.enemyTanks.filter(e => e.alive).length;
-        const spawnResult = this.enemySpawner.update(deltaTime, aliveCount, this.gameMap.spawnPoints);
-        if (spawnResult) {
-            this.spawnEnemy(spawnResult.type, spawnResult.candidates);
-        }
-
-        const allTanks = [this.playerTank, ...this.enemyTanks];
-        for (let i = 0; i < this.enemyTanks.length; i++) {
-            const enemy = this.enemyTanks[i];
-            if (!enemy.alive) continue;
-
-            enemy.update(deltaTime);
-
-            const ai = this.enemyAIs[i];
-            if (!ai) continue;
-
-            const action = ai.update(
-                enemy,
-                this.playerTank,
-                this.gameMap.baseMeshes,
-                this.collisionSystem,
-                allTanks,
-                deltaTime
-            );
-
-            if (action === 'shoot' && enemy.canShoot()) {
-                enemy.resetShootCooldown();
-                enemy.startRecoil();
-                const pos = enemy.getBarrelTipPosition();
-                const dir = enemy.getShootDirection();
-                this.bulletManager.shoot(pos, dir, 'enemy');
-                this.effectsManager.createMuzzleFlash(pos);
-                this.audioManager.playShoot();
-            }
-        }
-
+        this.tankManager.updateEnemies(deltaTime, this.gameMap.baseMeshes, this.gameMap.spawnPoints);
         this.updateEnemyCount();
     }
 
     updateBullets(deltaTime) {
-        this.bulletManager.update(deltaTime);
-
-        for (const bullet of this.bulletManager.bullets) {
-            if (!bullet.alive) continue;
-
-            const result = this.collisionSystem.checkBulletCollisions(
-                bullet, this.playerTank, this.enemyTanks,
-                this.effectsManager, this.audioManager, this
-            );
-
-            if (result) {
-                switch (result.type) {
-                    case 'enemy_killed':
-                        this.score += result.enemy.type === 'heavy' ? 200 : result.enemy.type === 'elite' ? 150 : 100;
-                        this.kills++;
-                        this.uiManager.updateScore(this.score);
-                        this.powerupManager.trySpawnAt(result.deathPos);
-                        break;
-                    case 'enemy_hit':
-                        this.effectsManager.createHitFlash(result.enemy);
-                        this.score += 10;
-                        this.uiManager.updateScore(this.score);
-                        break;
-                    case 'player_killed':
-                        this.onPlayerDeath();
-                        break;
-                    case 'player_hit':
-                        this.effectsManager.createHitFlash(this.playerTank);
-                        break;
-                    case 'base':
-                        this.gameOver(false);
-                        break;
-                }
-            }
-        }
+        this.tankManager.updateBullets(deltaTime);
     }
 
     onPlayerDeath() {
@@ -537,43 +425,41 @@ class Game {
         if (this.playerLives <= 0) {
             this.gameOver(false);
         } else {
-            this.playerTank.destroy();
-            this.playerTank = new Tank(this.scene, {
-                type: 'player',
-                hp: 1,
-                speed: 5,
-                rotSpeed: 3,
-                color: 0x4a7c59,
-                shootCooldown: 2.0
-            });
-            this.playerTank.setPosition(this.playerSpawnPos.x, this.playerSpawnPos.z);
-            this.playerTank.activateShield(2);
+            const oldTank = this.tankManager.getPlayerTank();
+            if (oldTank) oldTank.destroy();
+
+            this.tankManager.createPlayerTank(
+                { type: 'player', hp: 1, speed: 5, rotSpeed: 3, color: 0x4a7c59, shootCooldown: 2.0 },
+                this.playerSpawnPos
+            );
+            this.tankManager.getPlayerTank().activateShield(2);
         }
     }
 
     updatePowerups(deltaTime) {
         this.powerupManager.update(deltaTime);
 
-        if (!this.playerTank || !this.playerTank.alive) return;
+        const tank = this.tankManager.getPlayerTank();
+        if (!tank || !tank.alive) return;
 
-        const pickup = this.powerupManager.checkPickup(this.playerTank);
+        const pickup = this.powerupManager.checkPickup(tank);
         if (pickup) {
             this.audioManager.playPowerup();
             switch (pickup) {
                 case 'speed':
-                    this.playerTank.activateSpeedBoost(5);
+                    tank.activateSpeedBoost(5);
                     this.uiManager.showPowerupText('加速！', '#ffdd00');
                     setTimeout(() => this.uiManager.hidePowerupText(), 5000);
                     break;
                 case 'shield':
-                    this.playerTank.activateShield(3);
+                    tank.activateShield(3);
                     this.uiManager.showPowerupText('护盾！', '#4488ff');
                     setTimeout(() => this.uiManager.hidePowerupText(), 3000);
                     break;
                 case 'bomb':
                     this.uiManager.showPowerupText('全屏炸弹！', '#ff3333');
                     setTimeout(() => this.uiManager.hidePowerupText(), 2000);
-                    this.enemyTanks.forEach(enemy => {
+                    this.tankManager.getEnemyTanks().forEach(enemy => {
                         if (enemy.alive) {
                             this.effectsManager.createExplosion(enemy.getPosition(), 'medium');
                             this.audioManager.playExplosion();
@@ -589,23 +475,21 @@ class Game {
     }
 
     updateCamera(deltaTime) {
-        if (!this.playerTank) return;
-        const tankPos = this.playerTank.getPosition();
-        const tankRot = this.playerTank.getRotation();
+        const tank = this.tankManager.getPlayerTank();
+        if (!tank) return;
+        const tankPos = tank.getPosition();
+        const tankRot = tank.getRotation();
 
-        // 炮塔世界朝向角度
-        const turretAngle = tankRot + this.playerTank.turretGroup.rotation.y;
+        // 使用新的 getTurretWorldAngle 方法
+        const turretAngle = tank.getTurretWorldAngle();
 
         if (this.isZooming) {
-            // 第一人称炮手瞄准镜视角
-            // 相机在炮管后方（炮塔位置），沿炮管方向看出去
             const scopePos = new THREE.Vector3(
                 tankPos.x - Math.sin(turretAngle) * 0.5,
                 1.35,
                 tankPos.z - Math.cos(turretAngle) * 0.5
             );
 
-            // 看向炮管前方远处
             const scopeLook = new THREE.Vector3(
                 tankPos.x - Math.sin(turretAngle) * 30,
                 1.2,
@@ -616,12 +500,9 @@ class Game {
             this.camera.position.lerp(scopePos, zoomSmooth);
             this.camera.lookAt(scopeLook);
 
-            // 隐藏玩家坦克模型
-            if (this.playerTank.group.visible) {
-                this.playerTank.group.visible = false;
-            }
+            // 使用新的 setVisible 方法
+            tank.setVisible(false);
         } else {
-            // 第三人称俯视视角
             const targetPos = new THREE.Vector3(
                 tankPos.x + Math.sin(tankRot) * this.cameraOffset.z,
                 this.cameraOffset.y,
@@ -638,18 +519,14 @@ class Game {
             );
             this.camera.lookAt(lookTarget);
 
-            // 恢复玩家坦克模型可见
-            if (!this.playerTank.group.visible) {
-                this.playerTank.group.visible = true;
-            }
+            // 使用新的 setVisible 方法
+            tank.setVisible(true);
         }
     }
 
     checkWinCondition() {
         if (this.openWorldMode) return;
-        const aliveEnemies = this.enemyTanks.filter(e => e.alive).length;
-        const remaining = this.enemySpawner.getRemainingCount();
-        if (aliveEnemies === 0 && remaining === 0) {
+        if (this.tankManager.getRemainingEnemyCount() === 0) {
             this.nextLevel();
         }
     }

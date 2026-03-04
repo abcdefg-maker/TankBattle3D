@@ -1,4 +1,4 @@
-// collision.js - 碰撞检测系统（网格墙体版）
+// collision.js - 碰撞检测系统（纯检测，只返回碰撞结果，不触发特效/音效）
 class CollisionSystem {
     constructor(gameMap) {
         this.gameMap = gameMap;
@@ -68,8 +68,8 @@ class CollisionSystem {
         return true;
     }
 
-    // 检测子弹碰撞
-    checkBulletCollisions(bullet, playerTank, enemyTanks, effectsManager, audioManager, game) {
+    // 检测子弹碰撞 — 纯检测，只返回碰撞信息
+    checkBulletCollisions(bullet, playerTank, enemyTanks) {
         if (!bullet.alive) return null;
         const bPos = bullet.getPosition();
         const bounds = this.gameMap.getMapBounds();
@@ -88,11 +88,10 @@ class CollisionSystem {
             const brick = this.gameMap.bricks[i];
             const wallBox = this.getWallBox(brick);
             if (wallBox.containsPoint(bulletPoint)) {
-                effectsManager.createBrickHitEffect(brick.position.clone());
-                audioManager.playHit();
+                const position = brick.position.clone();
                 this.gameMap.removeBrick(brick);
                 bullet.destroy();
-                return { type: 'brick' };
+                return { type: 'brick', position };
             }
         }
 
@@ -100,10 +99,9 @@ class CollisionSystem {
         for (const steel of this.gameMap.steels) {
             const wallBox = this.getWallBox(steel);
             if (wallBox.containsPoint(bulletPoint)) {
-                effectsManager.createSteelHitEffect(steel.position.clone());
-                audioManager.playHit();
+                const position = steel.position.clone();
                 bullet.destroy();
-                return { type: 'steel' };
+                return { type: 'steel', position };
             }
         }
 
@@ -113,10 +111,9 @@ class CollisionSystem {
             const dx = bPos.x - basePos.x;
             const dz = bPos.z - basePos.z;
             if (dx * dx + dz * dz < 1.5 * 1.5) {
-                effectsManager.createBaseHitEffect(basePos.clone());
-                audioManager.playExplosion();
+                const position = basePos.clone();
                 bullet.destroy();
-                return { type: 'base' };
+                return { type: 'base', position };
             }
         }
 
@@ -127,17 +124,12 @@ class CollisionSystem {
                 enemy.updateBoundingBox();
                 if (enemy.boundingBox.containsPoint(bulletPoint)) {
                     const dead = enemy.takeDamage(1);
+                    const position = enemy.getPosition();
                     bullet.destroy();
                     if (dead) {
-                        const deathPos = enemy.getPosition();
-                        effectsManager.createTankDestroyEffect(deathPos);
-                        audioManager.playExplosion();
-                        enemy.destroy();
-                        return { type: 'enemy_killed', enemy, deathPos };
+                        return { type: 'enemy_killed', position, target: enemy };
                     } else {
-                        effectsManager.createTankHitEffect(enemy.getPosition());
-                        audioManager.playHit();
-                        return { type: 'enemy_hit', enemy };
+                        return { type: 'enemy_hit', position, target: enemy };
                     }
                 }
             }
@@ -148,15 +140,12 @@ class CollisionSystem {
             playerTank.updateBoundingBox();
             if (playerTank.boundingBox.containsPoint(bulletPoint)) {
                 const dead = playerTank.takeDamage(1);
+                const position = playerTank.getPosition();
                 bullet.destroy();
                 if (dead) {
-                    effectsManager.createTankDestroyEffect(playerTank.getPosition());
-                    audioManager.playExplosion();
-                    return { type: 'player_killed' };
+                    return { type: 'player_killed', position, target: playerTank };
                 } else {
-                    effectsManager.createTankHitEffect(playerTank.getPosition());
-                    audioManager.playHit();
-                    return { type: 'player_hit' };
+                    return { type: 'player_hit', position, target: playerTank };
                 }
             }
         }

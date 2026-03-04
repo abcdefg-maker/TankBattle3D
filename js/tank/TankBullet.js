@@ -1,5 +1,5 @@
-// bullet.js - 子弹系统（真实炮弹版）
-class Bullet {
+// TankBullet.js - 子弹类（模型+飞行+拖尾）
+class TankBullet {
     constructor(scene, position, direction, owner) {
         this.scene = scene;
         this.owner = owner; // 'player' 或 'enemy'
@@ -105,7 +105,6 @@ class Bullet {
 
         const size = 0.04 + Math.random() * 0.04;
         const geo = new THREE.SphereGeometry(size, 4, 3);
-        // 橙黄到灰色的随机颜色
         const colorLerp = Math.random();
         const r = 1.0 - colorLerp * 0.6;
         const g = 0.6 - colorLerp * 0.3;
@@ -116,7 +115,6 @@ class Bullet {
             opacity: 0.6
         });
         const mesh = new THREE.Mesh(geo, mat);
-        // 在炮弹尾部生成，带轻微偏移
         const tailPos = this.group.position.clone();
         tailPos.x += (Math.random() - 0.5) * 0.05;
         tailPos.z += (Math.random() - 0.5) * 0.05;
@@ -139,7 +137,6 @@ class Bullet {
             }
         });
         this.scene.remove(this.light);
-        // 清理拖尾
         for (const p of this.trailParticles) {
             this.scene.remove(p.mesh);
             p.mesh.geometry.dispose();
@@ -149,33 +146,4 @@ class Bullet {
     }
 }
 
-class BulletManager {
-    constructor(scene) {
-        this.scene = scene;
-        this.bullets = [];
-    }
-
-    shoot(position, direction, owner) {
-        const bullet = new Bullet(this.scene, position, direction, owner);
-        this.bullets.push(bullet);
-        return bullet;
-    }
-
-    update(deltaTime) {
-        for (let i = this.bullets.length - 1; i >= 0; i--) {
-            const b = this.bullets[i];
-            b.update(deltaTime);
-            if (!b.alive) {
-                this.bullets.splice(i, 1);
-            }
-        }
-    }
-
-    clear() {
-        this.bullets.forEach(b => b.destroy());
-        this.bullets = [];
-    }
-}
-
-window.Bullet = Bullet;
-window.BulletManager = BulletManager;
+window.TankBullet = TankBullet;

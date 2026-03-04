@@ -1,4 +1,4 @@
-// tank.js - 坦克模型和控制（平地版本）
+// Tank.js - 坦克实体（模型+移动+炮塔+后坐力+护盾）
 class Tank {
     constructor(scene, options = {}) {
         this.scene = scene;
@@ -20,10 +20,10 @@ class Tank {
 
         // 后坐力系统
         this.isRecoiling = false;
-        this.recoilOffset = 0;       // 炮管后缩偏移量
-        this.recoilPitch = 0;        // 炮塔仰角偏移
-        this.recoilShake = 0;        // 车体震动
-        this.recoilPhase = 'idle';   // idle | recoil | recover
+        this.recoilOffset = 0;
+        this.recoilPitch = 0;
+        this.recoilShake = 0;
+        this.recoilPhase = 'idle';
 
         // 创建坦克模型
         this.group = new THREE.Group();
@@ -239,7 +239,7 @@ class Tank {
         this.barrelMesh.rotation.x = Math.PI / 2;
         this.barrelMesh.position.set(0, 0.95, -1.65);
         this.barrelMesh.castShadow = true;
-        this.barrelBaseZ = -1.65; // 记录炮管原始Z位置
+        this.barrelBaseZ = -1.65;
         this.turretGroup.add(this.barrelMesh);
 
         const fumeGeo = new THREE.CylinderGeometry(0.11, 0.11, 0.15, 8);
@@ -352,6 +352,16 @@ class Tank {
         this.turretGroup.rotation.y = angle - this.group.rotation.y;
     }
 
+    // 新增：封装 group.visible 访问
+    setVisible(visible) {
+        this.group.visible = visible;
+    }
+
+    // 新增：获取炮塔世界角度
+    getTurretWorldAngle() {
+        return this.group.rotation.y + this.turretGroup.rotation.y;
+    }
+
     canShoot() {
         return this.shootTimer <= 0 && !this.isRecoiling;
     }
@@ -372,14 +382,12 @@ class Tank {
         if (this.recoilPhase === 'idle') return;
 
         if (this.recoilPhase === 'recoil') {
-            // 快速后缩
             this.recoilOffset += (-0.45 - this.recoilOffset) * Math.min(1, deltaTime * 35);
             this.recoilPitch += (0.06 - this.recoilPitch) * Math.min(1, deltaTime * 35);
             if (this.recoilOffset <= -0.4) {
                 this.recoilPhase = 'recover';
             }
         } else if (this.recoilPhase === 'recover') {
-            // 缓慢恢复
             this.recoilOffset += (0 - this.recoilOffset) * Math.min(1, deltaTime * 3.5);
             this.recoilPitch += (0 - this.recoilPitch) * Math.min(1, deltaTime * 3.5);
             if (Math.abs(this.recoilOffset) < 0.01) {
@@ -390,25 +398,21 @@ class Tank {
             }
         }
 
-        // 车体微震衰减
         if (this.recoilShake > 0) {
             this.recoilShake *= Math.max(0, 1 - deltaTime * 15);
             if (this.recoilShake < 0.001) this.recoilShake = 0;
         }
 
-        // 应用到炮管模型
         const offset = this.recoilOffset;
         if (this.barrelMesh) this.barrelMesh.position.z = this.barrelBaseZ - offset;
         if (this.fumeMesh) this.fumeMesh.position.z = this.fumeBaseZ - offset;
         if (this.muzzleMesh) this.muzzleMesh.position.z = this.muzzleBaseZ - offset;
         if (this.muzzleHoleMesh) this.muzzleHoleMesh.position.z = this.muzzleHoleBaseZ - offset;
 
-        // 炮塔仰角
         if (this.turretGroup) {
             this.turretGroup.rotation.x = this.recoilPitch;
         }
 
-        // 车体微震
         if (this.recoilShake > 0 && this.group) {
             this.group.position.y = (Math.random() - 0.5) * this.recoilShake * 2;
         } else if (this.group) {
