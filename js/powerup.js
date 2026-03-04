@@ -9,8 +9,7 @@ class PowerUp {
 
         this.group = new THREE.Group();
         this.buildModel();
-        this.baseY = (position.y || 0) + 1.2;
-        this.group.position.set(position.x, this.baseY, position.z);
+        this.group.position.set(position.x, 1.2, position.z);
         this.scene.add(this.group);
     }
 
@@ -66,7 +65,7 @@ class PowerUp {
         // 旋转和上下浮动
         this.mesh.rotation.y += deltaTime * 2;
         this.mesh.rotation.x += deltaTime * 0.5;
-        this.group.position.y = this.baseY + Math.sin(Date.now() * 0.003) * 0.3;
+        this.group.position.y = 1.2 + Math.sin(Date.now() * 0.003) * 0.3;
 
         // 闪烁（最后3秒）
         if (this.timer > this.lifetime - 3) {

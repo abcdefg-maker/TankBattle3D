@@ -1,4 +1,4 @@
-// tank.js - 坦克模型和控制
+// tank.js - 坦克模型和控制（平地版本）
 class Tank {
     constructor(scene, options = {}) {
         this.scene = scene;
@@ -14,13 +14,16 @@ class Tank {
         this.speedBoostTimer = 0;
         this.originalSpeed = this.speed;
 
-        // 地形引用和独立偏航角（用于地形倾斜）
-        this.terrain = options.terrain || null;
-        this.yaw = 0;
-
         // 射击冷却
-        this.shootCooldown = options.shootCooldown || 0.5;
+        this.shootCooldown = options.shootCooldown || 2.0;
         this.shootTimer = 0;
+
+        // 后坐力系统
+        this.isRecoiling = false;
+        this.recoilOffset = 0;       // 炮管后缩偏移量
+        this.recoilPitch = 0;        // 炮塔仰角偏移
+        this.recoilShake = 0;        // 车体震动
+        this.recoilPhase = 'idle';   // idle | recoil | recover
 
         // 创建坦克模型
         this.group = new THREE.Group();
@@ -232,30 +235,34 @@ class Tank {
 
         const barrelGeo = new THREE.CylinderGeometry(0.07, 0.08, 1.8, 8);
         const barrelMat = new THREE.MeshStandardMaterial({ color: metalColor, metalness: 0.7, roughness: 0.3 });
-        const barrel = new THREE.Mesh(barrelGeo, barrelMat);
-        barrel.rotation.x = Math.PI / 2;
-        barrel.position.set(0, 0.95, -1.65);
-        barrel.castShadow = true;
-        this.turretGroup.add(barrel);
+        this.barrelMesh = new THREE.Mesh(barrelGeo, barrelMat);
+        this.barrelMesh.rotation.x = Math.PI / 2;
+        this.barrelMesh.position.set(0, 0.95, -1.65);
+        this.barrelMesh.castShadow = true;
+        this.barrelBaseZ = -1.65; // 记录炮管原始Z位置
+        this.turretGroup.add(this.barrelMesh);
 
         const fumeGeo = new THREE.CylinderGeometry(0.11, 0.11, 0.15, 8);
-        const fume = this._mesh(fumeGeo, metalColor);
-        fume.rotation.x = Math.PI / 2;
-        fume.position.set(0, 0.95, -1.4);
-        this.turretGroup.add(fume);
+        this.fumeMesh = this._mesh(fumeGeo, metalColor);
+        this.fumeMesh.rotation.x = Math.PI / 2;
+        this.fumeMesh.position.set(0, 0.95, -1.4);
+        this.fumeBaseZ = -1.4;
+        this.turretGroup.add(this.fumeMesh);
 
         const muzzleGeo = new THREE.CylinderGeometry(0.1, 0.09, 0.2, 8);
-        const muzzle = this._mesh(muzzleGeo, darkMetal);
-        muzzle.rotation.x = Math.PI / 2;
-        muzzle.position.set(0, 0.95, -2.6);
-        this.turretGroup.add(muzzle);
+        this.muzzleMesh = this._mesh(muzzleGeo, darkMetal);
+        this.muzzleMesh.rotation.x = Math.PI / 2;
+        this.muzzleMesh.position.set(0, 0.95, -2.6);
+        this.muzzleBaseZ = -2.6;
+        this.turretGroup.add(this.muzzleMesh);
 
         const muzzleHoleGeo = new THREE.CylinderGeometry(0.055, 0.055, 0.05, 8);
         const muzzleHoleMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
-        const muzzleHole = new THREE.Mesh(muzzleHoleGeo, muzzleHoleMat);
-        muzzleHole.rotation.x = Math.PI / 2;
-        muzzleHole.position.set(0, 0.95, -2.72);
-        this.turretGroup.add(muzzleHole);
+        this.muzzleHoleMesh = new THREE.Mesh(muzzleHoleGeo, muzzleHoleMat);
+        this.muzzleHoleMesh.rotation.x = Math.PI / 2;
+        this.muzzleHoleMesh.position.set(0, 0.95, -2.72);
+        this.muzzleHoleBaseZ = -2.72;
+        this.turretGroup.add(this.muzzleHoleMesh);
 
         if (this.type === 'player') {
             const antennaGeo = new THREE.CylinderGeometry(0.01, 0.015, 1.2, 4);
@@ -289,12 +296,10 @@ class Tank {
         return new THREE.Mesh(geo, mat);
     }
 
-    // ====== 位置与移动（地形感知）======
+    // ====== 位置与移动 ======
 
     setPosition(x, z) {
-        const y = this.terrain ? this.terrain.getHeightAt(x, z) : 0;
-        this.group.position.set(x, y, z);
-        this._updateTilt();
+        this.group.position.set(x, 0, z);
     }
 
     getPosition() {
@@ -302,96 +307,113 @@ class Tank {
     }
 
     getRotation() {
-        return this.yaw;
-    }
-
-    getTurretWorldDirection() {
-        const dir = new THREE.Vector3(0, 0, -1);
-        dir.applyQuaternion(this.turretGroup.getWorldQuaternion(new THREE.Quaternion()));
-        return dir;
+        return this.group.rotation.y;
     }
 
     getBarrelTipPosition() {
-        const angle = this.yaw + this.turretGroup.rotation.y;
+        const angle = this.group.rotation.y + this.turretGroup.rotation.y;
         const tankPos = this.group.position;
         return new THREE.Vector3(
             tankPos.x + Math.sin(angle) * -2.8,
-            tankPos.y + 0.95,
+            0.95,
             tankPos.z + Math.cos(angle) * -2.8
         );
     }
 
     getShootDirection() {
-        const angle = this.yaw + this.turretGroup.rotation.y;
+        const angle = this.group.rotation.y + this.turretGroup.rotation.y;
         return new THREE.Vector3(-Math.sin(angle), 0, -Math.cos(angle));
     }
 
     calcMovePosition(forward, deltaTime) {
-        let currentSpeed = this.speedBoostTimer > 0 ? this.speed * 1.5 : this.speed;
-
-        // 坡度速度修正
-        if (this.terrain) {
-            const slope = this.terrain.getSlopeInDirection(
-                this.group.position.x, this.group.position.z, this.yaw
-            );
-            const slopeFactor = slope * forward;
-            currentSpeed *= Math.max(0.3, Math.min(1.4, 1 - slopeFactor * 0.8));
-        }
-
-        const dx = -Math.sin(this.yaw) * forward * currentSpeed * deltaTime;
-        const dz = -Math.cos(this.yaw) * forward * currentSpeed * deltaTime;
-        const newX = this.group.position.x + dx;
-        const newZ = this.group.position.z + dz;
-        const newY = this.terrain ? this.terrain.getHeightAt(newX, newZ) : 0;
-        return new THREE.Vector3(newX, newY, newZ);
+        const currentSpeed = this.speedBoostTimer > 0 ? this.speed * 1.5 : this.speed;
+        const angle = this.group.rotation.y;
+        const dx = -Math.sin(angle) * forward * currentSpeed * deltaTime;
+        const dz = -Math.cos(angle) * forward * currentSpeed * deltaTime;
+        return new THREE.Vector3(this.group.position.x + dx, 0, this.group.position.z + dz);
     }
 
     applyPosition(pos) {
         this.group.position.x = pos.x;
         this.group.position.z = pos.z;
-        if (this.terrain) {
-            this.group.position.y = this.terrain.getHeightAt(pos.x, pos.z);
-        }
-        this._updateTilt();
     }
 
     rotate(direction, deltaTime) {
-        this.yaw += direction * this.rotSpeed * deltaTime;
-        this._updateTilt();
-    }
-
-    // 根据地形法线更新坦克俯仰和横滚
-    _updateTilt() {
-        if (!this.terrain) {
-            this.group.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);
-            return;
-        }
-        const normal = this.terrain.getNormalAt(this.group.position.x, this.group.position.z);
-        if (normal.y < 0.1) {
-            this.group.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);
-            return;
-        }
-        const yawQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);
-        const tiltQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
-        this.group.quaternion.multiplyQuaternions(tiltQuat, yawQuat);
+        this.group.rotation.y += direction * this.rotSpeed * deltaTime;
     }
 
     setTurretRotation(angle) {
-        this.turretGroup.rotation.y = angle - this.yaw;
+        this.turretGroup.rotation.y = angle - this.group.rotation.y;
     }
 
     aimTurretAt(targetPos) {
         const pos = this.group.position;
         const angle = Math.atan2(-(targetPos.x - pos.x), -(targetPos.z - pos.z));
-        this.turretGroup.rotation.y = angle - this.yaw;
+        this.turretGroup.rotation.y = angle - this.group.rotation.y;
     }
 
     canShoot() {
-        return this.shootTimer <= 0;
+        return this.shootTimer <= 0 && !this.isRecoiling;
     }
 
     resetShootCooldown() {
         this.shootTimer = this.shootCooldown;
+    }
+
+    startRecoil() {
+        this.isRecoiling = true;
+        this.recoilPhase = 'recoil';
+        this.recoilOffset = 0;
+        this.recoilPitch = 0;
+        this.recoilShake = 0.04;
+    }
+
+    updateRecoil(deltaTime) {
+        if (this.recoilPhase === 'idle') return;
+
+        if (this.recoilPhase === 'recoil') {
+            // 快速后缩
+            this.recoilOffset += (-0.45 - this.recoilOffset) * Math.min(1, deltaTime * 35);
+            this.recoilPitch += (0.06 - this.recoilPitch) * Math.min(1, deltaTime * 35);
+            if (this.recoilOffset <= -0.4) {
+                this.recoilPhase = 'recover';
+            }
+        } else if (this.recoilPhase === 'recover') {
+            // 缓慢恢复
+            this.recoilOffset += (0 - this.recoilOffset) * Math.min(1, deltaTime * 3.5);
+            this.recoilPitch += (0 - this.recoilPitch) * Math.min(1, deltaTime * 3.5);
+            if (Math.abs(this.recoilOffset) < 0.01) {
+                this.recoilOffset = 0;
+                this.recoilPitch = 0;
+                this.recoilPhase = 'idle';
+                this.isRecoiling = false;
+            }
+        }
+
+        // 车体微震衰减
+        if (this.recoilShake > 0) {
+            this.recoilShake *= Math.max(0, 1 - deltaTime * 15);
+            if (this.recoilShake < 0.001) this.recoilShake = 0;
+        }
+
+        // 应用到炮管模型
+        const offset = this.recoilOffset;
+        if (this.barrelMesh) this.barrelMesh.position.z = this.barrelBaseZ - offset;
+        if (this.fumeMesh) this.fumeMesh.position.z = this.fumeBaseZ - offset;
+        if (this.muzzleMesh) this.muzzleMesh.position.z = this.muzzleBaseZ - offset;
+        if (this.muzzleHoleMesh) this.muzzleHoleMesh.position.z = this.muzzleHoleBaseZ - offset;
+
+        // 炮塔仰角
+        if (this.turretGroup) {
+            this.turretGroup.rotation.x = this.recoilPitch;
+        }
+
+        // 车体微震
+        if (this.recoilShake > 0 && this.group) {
+            this.group.position.y = (Math.random() - 0.5) * this.recoilShake * 2;
+        } else if (this.group) {
+            this.group.position.y = 0;
+        }
     }
 
     takeDamage(amount) {
@@ -417,15 +439,15 @@ class Tank {
     updateBoundingBox() {
         const pos = this.group.position;
         const s = Math.max(this.halfSize.x, this.halfSize.z);
-        this.boundingBox.min.set(pos.x - s, pos.y, pos.z - s);
-        this.boundingBox.max.set(pos.x + s, pos.y + 2, pos.z + s);
+        this.boundingBox.min.set(pos.x - s, 0, pos.z - s);
+        this.boundingBox.max.set(pos.x + s, 2, pos.z + s);
     }
 
     getBoundingBoxAt(pos) {
         const s = Math.max(this.halfSize.x, this.halfSize.z);
         return new THREE.Box3(
-            new THREE.Vector3(pos.x - s, pos.y, pos.z - s),
-            new THREE.Vector3(pos.x + s, pos.y + 2, pos.z + s)
+            new THREE.Vector3(pos.x - s, 0, pos.z - s),
+            new THREE.Vector3(pos.x + s, 2, pos.z + s)
         );
     }
 
@@ -443,12 +465,7 @@ class Tank {
 
         if (this.speedBoostTimer > 0) this.speedBoostTimer -= deltaTime;
 
-        // 每帧更新地形跟随
-        if (this.terrain) {
-            this.group.position.y = this.terrain.getHeightAt(this.group.position.x, this.group.position.z);
-            this._updateTilt();
-        }
-
+        this.updateRecoil(deltaTime);
         this.updateBoundingBox();
     }
 

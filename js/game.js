@@ -1,4 +1,4 @@
-// game.js - 游戏核心逻辑
+// game.js - 游戏核心逻辑（平地版本）
 class Game {
     constructor() {
         // Three.js 核心
@@ -32,6 +32,9 @@ class Game {
         // 输入
         this.keys = {};
         this.mouse = { x: 0, y: 0 };
+        this.mouseDeltaX = 0; // 鼠标帧间移动量
+        this.zoomTurretAngle = 0; // 瞄准镜模式下的炮塔角度
+        this.zoomTurretSpeed = 2.5; // 瞄准镜模式下的固定旋转速度（弧度/秒/像素归一化）
         this.raycaster = new THREE.Raycaster();
         this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
@@ -40,22 +43,25 @@ class Game {
         this.cameraLookOffset = new THREE.Vector3(0, 0, -5);
         this.cameraSmoothing = 4;
 
+        // 放大瞄准系统
+        this.isZooming = false;
+        this.currentFOV = 60;
+        this.normalFOV = 60;
+        this.zoomFOV = 30;
+        this.zoomMoveSpeedMult = 0.5;
+
         // 玩家出生点
         this.playerSpawnPos = { x: 0, z: 0 };
-
-        // 弹道预测线
-        this.trajectoryLine = null;
-        this.trajectoryImpact = null;
     }
 
     init() {
         // 场景
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x87CEEB);
-        this.scene.fog = new THREE.Fog(0x87CEEB, 40, 90);
+        this.scene.fog = new THREE.Fog(0x87CEEB, 30, 60);
 
         // 相机
-        this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 150);
+        this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
         this.camera.position.set(0, 15, 15);
 
         // 渲染器
@@ -82,24 +88,6 @@ class Game {
         this.powerupManager = new PowerUpManager(this.scene);
         this.enemySpawner = new EnemySpawner();
 
-        // 弹道预测线
-        const trajGeo = new THREE.BufferGeometry();
-        trajGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(100 * 3), 3));
-        this.trajectoryLine = new THREE.Line(trajGeo, new THREE.LineDashedMaterial({
-            color: 0x00ff88, transparent: true, opacity: 0.6,
-            dashSize: 0.8, gapSize: 0.4
-        }));
-        this.trajectoryLine.visible = false;
-        this.trajectoryLine.frustumCulled = false;
-        this.scene.add(this.trajectoryLine);
-
-        const impactGeo = new THREE.SphereGeometry(0.25, 8, 6);
-        this.trajectoryImpact = new THREE.Mesh(impactGeo, new THREE.MeshBasicMaterial({
-            color: 0xff3344, transparent: true, opacity: 0.7
-        }));
-        this.trajectoryImpact.visible = false;
-        this.scene.add(this.trajectoryImpact);
-
         // 事件监听
         this.setupInputListeners();
         this.setupUIListeners();
@@ -124,11 +112,11 @@ class Game {
         dirLight.shadow.mapSize.width = 2048;
         dirLight.shadow.mapSize.height = 2048;
         dirLight.shadow.camera.near = 0.5;
-        dirLight.shadow.camera.far = 100;
-        dirLight.shadow.camera.left = -45;
-        dirLight.shadow.camera.right = 45;
-        dirLight.shadow.camera.top = 45;
-        dirLight.shadow.camera.bottom = -45;
+        dirLight.shadow.camera.far = 80;
+        dirLight.shadow.camera.left = -25;
+        dirLight.shadow.camera.right = 25;
+        dirLight.shadow.camera.top = 25;
+        dirLight.shadow.camera.bottom = -25;
         this.scene.add(dirLight);
 
         const hemiLight = new THREE.HemisphereLight(0x87CEEB, 0x3a5a3a, 0.3);
@@ -154,6 +142,23 @@ class Game {
         document.addEventListener('mousemove', (e) => {
             this.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
             this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            // 记录鼠标水平移动增量（像素归一化到屏幕宽度）
+            this.mouseDeltaX += e.movementX / window.innerWidth;
+        });
+
+        // 右键放大瞄准
+        document.addEventListener('mousedown', (e) => {
+            if (e.button === 2) {
+                this.isZooming = true;
+            }
+        });
+        document.addEventListener('mouseup', (e) => {
+            if (e.button === 2) {
+                this.isZooming = false;
+            }
+        });
+        document.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
         });
 
         document.addEventListener('click', () => {
@@ -180,6 +185,12 @@ class Game {
         document.getElementById('restart-btn-over').addEventListener('click', () => {
             this.restartGame();
         });
+
+        document.getElementById('openworld-btn').addEventListener('click', () => {
+            this.audioManager.init();
+            this.audioManager.resume();
+            this.startOpenWorld();
+        });
     }
 
     startGame() {
@@ -191,14 +202,36 @@ class Game {
         this.loadLevel(this.currentLevel);
     }
 
+    startOpenWorld() {
+        this.state = 'playing';
+        this.score = 0;
+        this.kills = 0;
+        this.playerLives = 99;
+        this.openWorldMode = true;
+        this.clearEntities();
+        this.gameMap.loadOpenWorld();
+
+        this.playerTank = new Tank(this.scene, {
+            type: 'player', hp: 1, speed: 8, rotSpeed: 3,
+            color: 0x4a7c59, shootCooldown: 1.8
+        });
+        this.playerTank.setPosition(0, 0);
+
+        this.uiManager.showGameHud();
+        this.uiManager.updateScore(0);
+        this.uiManager.updateLevel('OW');
+        this.uiManager.updateLives(this.playerLives);
+        this.uiManager.updateEnemies(0);
+    }
+
     loadLevel(levelIndex) {
         // 清理
         this.clearEntities();
 
-        // 加载地图（地形 + 障碍物）
+        // 加载地图
         const levelData = this.gameMap.loadLevel(levelIndex);
 
-        // 玩家出生位置（从关卡数据获取）
+        // 玩家出生位置
         this.playerSpawnPos = levelData.playerSpawn;
 
         // 创建玩家坦克
@@ -208,8 +241,7 @@ class Game {
             speed: 5,
             rotSpeed: 3,
             color: 0x4a7c59,
-            shootCooldown: 0.4,
-            terrain: this.gameMap.terrain
+            shootCooldown: 2.0
         });
         this.playerTank.setPosition(this.playerSpawnPos.x, this.playerSpawnPos.z);
 
@@ -250,16 +282,15 @@ class Game {
         let options = {};
         switch (type) {
             case 'normal':
-                options = { type: 'normal', hp: 1, speed: 3, rotSpeed: 2, color: 0x888888, shootCooldown: 1.5 };
+                options = { type: 'normal', hp: 1, speed: 3, rotSpeed: 2, color: 0x888888, shootCooldown: 2.2 };
                 break;
             case 'elite':
-                options = { type: 'elite', hp: 1, speed: 5, rotSpeed: 3, color: 0xcc3333, shootCooldown: 1.0 };
+                options = { type: 'elite', hp: 1, speed: 5, rotSpeed: 3, color: 0xcc3333, shootCooldown: 1.5 };
                 break;
             case 'heavy':
-                options = { type: 'heavy', hp: 2, speed: 2.5, rotSpeed: 1.5, color: 0x991111, shootCooldown: 2.0 };
+                options = { type: 'heavy', hp: 2, speed: 2.5, rotSpeed: 1.5, color: 0x991111, shootCooldown: 3.0 };
                 break;
         }
-        options.terrain = this.gameMap.terrain;
 
         const allTanks = [this.playerTank, ...this.enemyTanks].filter(t => t && t.alive);
 
@@ -300,6 +331,9 @@ class Game {
         this.gameMap.clear();
         this.clearEntities();
         this.uiManager.hidePauseScreen();
+        if (this.openWorldMode) {
+            this.openWorldMode = false;
+        }
         this.startGame();
     }
 
@@ -337,12 +371,20 @@ class Game {
             this.updatePowerups(deltaTime);
             this.updateCamera(deltaTime);
             this.checkWinCondition();
-        }
 
-        // 非游戏状态隐藏弹道线
-        if (this.state !== 'playing') {
-            if (this.trajectoryLine) this.trajectoryLine.visible = false;
-            if (this.trajectoryImpact) this.trajectoryImpact.visible = false;
+            // 放大瞄准 FOV 平滑过渡
+            const targetFOV = this.isZooming ? this.zoomFOV : this.normalFOV;
+            if (Math.abs(this.currentFOV - targetFOV) > 0.1) {
+                this.currentFOV += (targetFOV - this.currentFOV) * Math.min(1, deltaTime * 10);
+                this.camera.fov = this.currentFOV;
+                this.camera.updateProjectionMatrix();
+            }
+
+            // 准星HUD显示/隐藏
+            const scopeEl = document.getElementById('scope-overlay');
+            if (scopeEl) {
+                scopeEl.style.display = this.isZooming ? 'flex' : 'none';
+            }
         }
 
         this.effectsManager.update(deltaTime);
@@ -350,15 +392,14 @@ class Game {
     }
 
     updatePlayerInput(deltaTime) {
-        if (!this.playerTank || !this.playerTank.alive) {
-            if (this.trajectoryLine) this.trajectoryLine.visible = false;
-            if (this.trajectoryImpact) this.trajectoryImpact.visible = false;
-            return;
-        }
+        if (!this.playerTank || !this.playerTank.alive) return;
 
         this.playerTank.update(deltaTime);
 
         const allTanks = [this.playerTank, ...this.enemyTanks];
+
+        // 放大瞄准时移动减速
+        const speedMult = this.isZooming ? this.zoomMoveSpeedMult : 1.0;
 
         // 移动
         let forward = 0;
@@ -366,7 +407,7 @@ class Game {
         if (this.keys['KeyS'] || this.keys['ArrowDown']) forward = -1;
 
         if (forward !== 0) {
-            const newPos = this.playerTank.calcMovePosition(forward, deltaTime);
+            const newPos = this.playerTank.calcMovePosition(forward * speedMult, deltaTime);
             if (this.collisionSystem.canTankMoveTo(this.playerTank, newPos, allTanks)) {
                 this.playerTank.applyPosition(newPos);
             }
@@ -377,25 +418,32 @@ class Game {
         if (this.keys['KeyA'] || this.keys['ArrowLeft']) rotDir = 1;
         if (this.keys['KeyD'] || this.keys['ArrowRight']) rotDir = -1;
         if (rotDir !== 0) {
-            this.playerTank.rotate(rotDir, deltaTime);
+            this.playerTank.rotate(rotDir * speedMult, deltaTime);
         }
 
-        // 鼠标控制炮塔（动态地面高度）
-        const tankPos = this.playerTank.getPosition();
-        this.groundPlane.constant = -tankPos.y;
-        this.raycaster.setFromCamera(new THREE.Vector2(this.mouse.x, this.mouse.y), this.camera);
-        const intersectPoint = new THREE.Vector3();
-        if (this.raycaster.ray.intersectPlane(this.groundPlane, intersectPoint)) {
-            const angle = Math.atan2(-(intersectPoint.x - tankPos.x), -(intersectPoint.z - tankPos.z));
-            this.playerTank.setTurretRotation(angle);
+        // 鼠标控制炮塔
+        if (this.isZooming) {
+            // 瞄准镜模式：用鼠标移动增量以固定角速度旋转炮塔
+            this.zoomTurretAngle -= this.mouseDeltaX * this.zoomTurretSpeed;
+            this.playerTank.setTurretRotation(this.zoomTurretAngle);
+        } else {
+            // 正常模式：raycast 到地面
+            this.raycaster.setFromCamera(new THREE.Vector2(this.mouse.x, this.mouse.y), this.camera);
+            const intersectPoint = new THREE.Vector3();
+            if (this.raycaster.ray.intersectPlane(this.groundPlane, intersectPoint)) {
+                const tankPos = this.playerTank.getPosition();
+                const angle = Math.atan2(-(intersectPoint.x - tankPos.x), -(intersectPoint.z - tankPos.z));
+                this.playerTank.setTurretRotation(angle);
+                // 同步记录当前角度，进入瞄准镜时无跳变
+                this.zoomTurretAngle = angle;
+            }
         }
-
-        // 更新弹道预测线
-        this._updateTrajectory();
+        this.mouseDeltaX = 0; // 每帧消耗掉增量
 
         // 射击
         if (this.keys['Space'] && this.playerTank.canShoot()) {
             this.playerTank.resetShootCooldown();
+            this.playerTank.startRecoil();
             const pos = this.playerTank.getBarrelTipPosition();
             const dir = this.playerTank.getShootDirection();
             this.bulletManager.shoot(pos, dir, 'player');
@@ -432,6 +480,7 @@ class Game {
 
             if (action === 'shoot' && enemy.canShoot()) {
                 enemy.resetShootCooldown();
+                enemy.startRecoil();
                 const pos = enemy.getBarrelTipPosition();
                 const dir = enemy.getShootDirection();
                 this.bulletManager.shoot(pos, dir, 'enemy');
@@ -495,8 +544,7 @@ class Game {
                 speed: 5,
                 rotSpeed: 3,
                 color: 0x4a7c59,
-                shootCooldown: 0.4,
-                terrain: this.gameMap.terrain
+                shootCooldown: 2.0
             });
             this.playerTank.setPosition(this.playerSpawnPos.x, this.playerSpawnPos.z);
             this.playerTank.activateShield(2);
@@ -545,113 +593,60 @@ class Game {
         const tankPos = this.playerTank.getPosition();
         const tankRot = this.playerTank.getRotation();
 
-        // 相机目标位置（坦克后上方）
-        const camTargetX = tankPos.x + Math.sin(tankRot) * this.cameraOffset.z;
-        const camTargetZ = tankPos.z + Math.cos(tankRot) * this.cameraOffset.z;
+        // 炮塔世界朝向角度
+        const turretAngle = tankRot + this.playerTank.turretGroup.rotation.y;
 
-        // 相机Y：确保在地形之上
-        let camTerrainH = 0;
-        if (this.gameMap && this.gameMap.terrain) {
-            camTerrainH = this.gameMap.terrain.getHeightAt(camTargetX, camTargetZ);
-        }
-        const camTargetY = Math.max(tankPos.y + this.cameraOffset.y, camTerrainH + 3);
+        if (this.isZooming) {
+            // 第一人称炮手瞄准镜视角
+            // 相机在炮管后方（炮塔位置），沿炮管方向看出去
+            const scopePos = new THREE.Vector3(
+                tankPos.x - Math.sin(turretAngle) * 0.5,
+                1.35,
+                tankPos.z - Math.cos(turretAngle) * 0.5
+            );
 
-        const targetPos = new THREE.Vector3(camTargetX, camTargetY, camTargetZ);
+            // 看向炮管前方远处
+            const scopeLook = new THREE.Vector3(
+                tankPos.x - Math.sin(turretAngle) * 30,
+                1.2,
+                tankPos.z - Math.cos(turretAngle) * 30
+            );
 
-        // 平滑跟随
-        const smooth = 1 - Math.exp(-this.cameraSmoothing * deltaTime);
-        this.camera.position.lerp(targetPos, smooth);
+            const zoomSmooth = 1 - Math.exp(-8 * deltaTime);
+            this.camera.position.lerp(scopePos, zoomSmooth);
+            this.camera.lookAt(scopeLook);
 
-        // 相机看向坦克前方
-        const lookTarget = new THREE.Vector3(
-            tankPos.x + Math.sin(tankRot) * this.cameraLookOffset.z,
-            tankPos.y + 1,
-            tankPos.z + Math.cos(tankRot) * this.cameraLookOffset.z
-        );
-        this.camera.lookAt(lookTarget);
-    }
-
-    _updateTrajectory() {
-        if (!this.playerTank || !this.trajectoryLine) return;
-
-        const startPos = this.playerTank.getBarrelTipPosition();
-        const dir = this.playerTank.getShootDirection();
-        const terrain = this.gameMap.terrain;
-        const bounds = this.gameMap.getMapBounds();
-        const obstacles = this.gameMap.getAllObstacles();
-        const bases = this.gameMap.baseMeshes;
-
-        const posAttr = this.trajectoryLine.geometry.attributes.position;
-        const step = 0.5;
-        const maxDist = 50;
-        let pointCount = 0;
-        let hitSomething = false;
-
-        for (let d = 0; d <= maxDist && pointCount < 100; d += step) {
-            const x = startPos.x + dir.x * d;
-            const y = startPos.y;
-            const z = startPos.z + dir.z * d;
-
-            // 边界
-            if (x < bounds.minX || x > bounds.maxX || z < bounds.minZ || z > bounds.maxZ) {
-                posAttr.setXYZ(pointCount++, x, y, z);
-                hitSomething = true;
-                break;
+            // 隐藏玩家坦克模型
+            if (this.playerTank.group.visible) {
+                this.playerTank.group.visible = false;
             }
-
-            // 地面碰撞
-            const groundH = terrain.getHeightAt(x, z);
-            if (y < groundH) {
-                posAttr.setXYZ(pointCount++, x, groundH, z);
-                hitSomething = true;
-                break;
-            }
-
-            // 障碍物
-            let blocked = false;
-            for (const obs of obstacles) {
-                const dx = x - obs.position.x, dz = z - obs.position.z;
-                const r = obs.userData.radius || 1;
-                if (dx * dx + dz * dz < r * r) { blocked = true; break; }
-            }
-            if (blocked) {
-                posAttr.setXYZ(pointCount++, x, y, z);
-                hitSomething = true;
-                break;
-            }
-
-            // 基地
-            let hitBase = false;
-            for (const base of bases) {
-                const dx = x - base.position.x, dz = z - base.position.z;
-                if (dx * dx + dz * dz < 3.5 * 3.5) { hitBase = true; break; }
-            }
-            if (hitBase) {
-                posAttr.setXYZ(pointCount++, x, y, z);
-                hitSomething = true;
-                break;
-            }
-
-            posAttr.setXYZ(pointCount++, x, y, z);
-        }
-
-        posAttr.needsUpdate = true;
-        this.trajectoryLine.geometry.setDrawRange(0, pointCount);
-        this.trajectoryLine.geometry.computeBoundingSphere();
-        this.trajectoryLine.computeLineDistances();
-        this.trajectoryLine.visible = pointCount > 1;
-
-        // 弹着点标记
-        if (hitSomething && pointCount > 0) {
-            const li = pointCount - 1;
-            this.trajectoryImpact.position.set(posAttr.getX(li), posAttr.getY(li), posAttr.getZ(li));
-            this.trajectoryImpact.visible = true;
         } else {
-            this.trajectoryImpact.visible = false;
+            // 第三人称俯视视角
+            const targetPos = new THREE.Vector3(
+                tankPos.x + Math.sin(tankRot) * this.cameraOffset.z,
+                this.cameraOffset.y,
+                tankPos.z + Math.cos(tankRot) * this.cameraOffset.z
+            );
+
+            const smooth = 1 - Math.exp(-this.cameraSmoothing * deltaTime);
+            this.camera.position.lerp(targetPos, smooth);
+
+            const lookTarget = new THREE.Vector3(
+                tankPos.x + Math.sin(tankRot) * this.cameraLookOffset.z,
+                1,
+                tankPos.z + Math.cos(tankRot) * this.cameraLookOffset.z
+            );
+            this.camera.lookAt(lookTarget);
+
+            // 恢复玩家坦克模型可见
+            if (!this.playerTank.group.visible) {
+                this.playerTank.group.visible = true;
+            }
         }
     }
 
     checkWinCondition() {
+        if (this.openWorldMode) return;
         const aliveEnemies = this.enemyTanks.filter(e => e.alive).length;
         const remaining = this.enemySpawner.getRemainingCount();
         if (aliveEnemies === 0 && remaining === 0) {

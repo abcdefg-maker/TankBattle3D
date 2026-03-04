@@ -16,10 +16,12 @@
                 <h3>操作说明</h3>
                 <p><span class="key">W/S/A/D</span> 或 <span class="key">方向键</span> - 移动坦克</p>
                 <p><span class="key">鼠标</span> - 控制炮塔方向</p>
-                <p><span class="key">空格</span> - 发射子弹</p>
+                <p><span class="key">右键按住</span> - 放大瞄准</p>
+                <p><span class="key">空格</span> - 发射炮弹</p>
                 <p><span class="key">ESC</span> - 暂停</p>
             </div>
             <button id="start-btn" class="menu-btn">开始游戏</button>
+            <button id="openworld-btn" class="menu-btn" style="background:#555;">开放世界(测试)</button>
         </div>
     </div>
 
@@ -44,6 +46,20 @@
         <div id="powerup-indicator" class="hidden">
             <span id="powerup-text"></span>
         </div>
+    </div>
+
+    <!-- 放大瞄准准星 -->
+    <div id="scope-overlay" style="display:none;">
+        <div class="scope-crosshair">
+            <div class="scope-line scope-h"></div>
+            <div class="scope-line scope-v"></div>
+            <div class="scope-center"></div>
+            <div class="scope-tick scope-tick-l"></div>
+            <div class="scope-tick scope-tick-r"></div>
+            <div class="scope-tick scope-tick-t"></div>
+            <div class="scope-tick scope-tick-b"></div>
+        </div>
+        <div class="scope-vignette"></div>
     </div>
 
     <!-- 暂停菜单 -->
@@ -78,7 +94,6 @@
 
     <!-- 游戏脚本 -->
     <script src="js/audio.js"></script>
-    <script src="js/terrain.js"></script>
     <script src="js/map.js"></script>
     <script src="js/tank.js"></script>
     <script src="js/bullet.js"></script>

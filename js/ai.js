@@ -103,13 +103,12 @@ class EnemyAI {
             } else {
                 // 碰到障碍物 - 尝试左右滑动
                 const angle = tank.getRotation();
-                const _h = (x, z) => tank.terrain ? tank.terrain.getHeightAt(x, z) : 0;
                 const slx = tankPos.x + Math.cos(angle) * tank.speed * deltaTime;
                 const slz = tankPos.z - Math.sin(angle) * tank.speed * deltaTime;
                 const srx = tankPos.x - Math.cos(angle) * tank.speed * deltaTime;
                 const srz = tankPos.z + Math.sin(angle) * tank.speed * deltaTime;
-                const slideLeft = new THREE.Vector3(slx, _h(slx, slz), slz);
-                const slideRight = new THREE.Vector3(srx, _h(srx, srz), srz);
+                const slideLeft = new THREE.Vector3(slx, 0, slz);
+                const slideRight = new THREE.Vector3(srx, 0, srz);
                 if (collisionSystem.canTankMoveTo(tank, slideLeft, allTanks)) {
                     tank.applyPosition(slideLeft);
                 } else if (collisionSystem.canTankMoveTo(tank, slideRight, allTanks)) {
