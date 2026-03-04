@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TankBattle3DD - 3D坦克大战</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- 开始菜单 -->
+    <div id="start-screen" class="screen">
+        <div class="menu-container">
+            <h1 class="game-title">TANK BATTLE 3D</h1>
+            <p class="subtitle">3D坦克大战</p>
+            <div class="controls-info">
+                <h3>操作说明</h3>
+                <p><span class="key">W/S/A/D</span> 或 <span class="key">方向键</span> - 移动坦克</p>
+                <p><span class="key">鼠标</span> - 控制炮塔方向</p>
+                <p><span class="key">空格</span> - 发射子弹</p>
+                <p><span class="key">ESC</span> - 暂停</p>
+            </div>
+            <button id="start-btn" class="menu-btn">开始游戏</button>
+        </div>
+    </div>
+
+    <!-- 游戏HUD -->
+    <div id="game-hud" class="hidden">
+        <div id="hud-top-left">
+            <div id="lives-display">
+                <span class="heart">&#9829;</span>
+                <span class="heart">&#9829;</span>
+                <span class="heart">&#9829;</span>
+            </div>
+        </div>
+        <div id="hud-top-right">
+            <div id="score-display">分数: <span id="score-value">0</span></div>
+        </div>
+        <div id="hud-right">
+            <div id="enemies-display">剩余敌人: <span id="enemies-value">0</span></div>
+        </div>
+        <div id="hud-bottom">
+            <div id="level-display">第 <span id="level-value">1</span> 关</div>
+        </div>
+        <div id="powerup-indicator" class="hidden">
+            <span id="powerup-text"></span>
+        </div>
+    </div>
+
+    <!-- 暂停菜单 -->
+    <div id="pause-screen" class="screen hidden">
+        <div class="menu-container">
+            <h2>游戏暂停</h2>
+            <button id="resume-btn" class="menu-btn">继续游戏</button>
+            <button id="restart-btn-pause" class="menu-btn">重新开始</button>
+        </div>
+    </div>
+
+    <!-- 游戏结束界面 -->
+    <div id="gameover-screen" class="screen hidden">
+        <div class="menu-container">
+            <h2 id="gameover-title">游戏结束</h2>
+            <p id="gameover-score">最终分数: 0</p>
+            <p id="gameover-kills">击杀数: 0</p>
+            <button id="restart-btn-over" class="menu-btn">重新开始</button>
+        </div>
+    </div>
+
+    <!-- 关卡过渡界面 -->
+    <div id="level-screen" class="screen hidden">
+        <div class="menu-container">
+            <h2 id="level-title">第 1 关</h2>
+            <p id="level-desc">准备战斗!</p>
+        </div>
+    </div>
+
+    <!-- Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <!-- 游戏脚本 -->
+    <script src="js/audio.js"></script>
+    <script src="js/terrain.js"></script>
+    <script src="js/map.js"></script>
+    <script src="js/tank.js"></script>
+    <script src="js/bullet.js"></script>
+    <script src="js/collision.js"></script>
+    <script src="js/effects.js"></script>
+    <script src="js/powerup.js"></script>
+    <script src="js/ai.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/game.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>

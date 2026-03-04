@@ -1,0 +1,246 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    overflow: hidden;
+    background: #000;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: #fff;
+    cursor: crosshair;
+}
+
+canvas {
+    display: block;
+}
+
+/* 通用屏幕覆盖 */
+.screen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 100;
+    background: rgba(0, 0, 0, 0.85);
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* 菜单容器 */
+.menu-container {
+    text-align: center;
+    padding: 40px 60px;
+    background: rgba(20, 30, 20, 0.95);
+    border: 2px solid #4a7c59;
+    border-radius: 10px;
+    box-shadow: 0 0 30px rgba(74, 124, 89, 0.3);
+}
+
+/* 游戏标题 */
+.game-title {
+    font-size: 64px;
+    font-weight: 900;
+    color: #4a7c59;
+    text-shadow: 3px 3px 0 #2a4c39, 0 0 20px rgba(74, 124, 89, 0.5);
+    letter-spacing: 6px;
+    margin-bottom: 5px;
+}
+
+.subtitle {
+    font-size: 20px;
+    color: #7ab88a;
+    margin-bottom: 30px;
+    letter-spacing: 8px;
+}
+
+/* 操作说明 */
+.controls-info {
+    margin: 20px 0;
+    padding: 15px 20px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 6px;
+    text-align: left;
+}
+
+.controls-info h3 {
+    color: #7ab88a;
+    margin-bottom: 10px;
+    text-align: center;
+}
+
+.controls-info p {
+    margin: 6px 0;
+    font-size: 14px;
+    color: #bbb;
+}
+
+.key {
+    display: inline-block;
+    background: #333;
+    padding: 2px 8px;
+    border-radius: 3px;
+    border: 1px solid #555;
+    font-family: monospace;
+    font-size: 13px;
+    color: #fff;
+    min-width: 28px;
+    text-align: center;
+}
+
+/* 按钮 */
+.menu-btn {
+    display: block;
+    width: 100%;
+    margin: 10px 0;
+    padding: 14px 40px;
+    font-size: 18px;
+    font-weight: bold;
+    color: #fff;
+    background: #4a7c59;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 2px;
+}
+
+.menu-btn:hover {
+    background: #5a9c69;
+    transform: scale(1.03);
+    box-shadow: 0 0 15px rgba(74, 124, 89, 0.4);
+}
+
+.menu-btn:active {
+    transform: scale(0.98);
+}
+
+/* 游戏HUD */
+#game-hud {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 50;
+}
+
+#hud-top-left {
+    position: absolute;
+    top: 15px;
+    left: 20px;
+}
+
+#lives-display .heart {
+    font-size: 28px;
+    color: #ff3333;
+    margin-right: 5px;
+    text-shadow: 0 0 5px rgba(255, 0, 0, 0.5);
+}
+
+#lives-display .heart.lost {
+    color: #333;
+    text-shadow: none;
+}
+
+#hud-top-right {
+    position: absolute;
+    top: 15px;
+    right: 20px;
+}
+
+#score-display {
+    font-size: 22px;
+    font-weight: bold;
+    color: #ffd700;
+    text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+#hud-right {
+    position: absolute;
+    top: 50px;
+    right: 20px;
+}
+
+#enemies-display {
+    font-size: 16px;
+    color: #ff8888;
+}
+
+#hud-bottom {
+    position: absolute;
+    bottom: 15px;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+#level-display {
+    font-size: 18px;
+    color: #7ab88a;
+    letter-spacing: 4px;
+}
+
+#powerup-indicator {
+    position: absolute;
+    top: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 8px 20px;
+    background: rgba(0, 0, 0, 0.6);
+    border-radius: 20px;
+    font-size: 16px;
+    font-weight: bold;
+    animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+/* 暂停和游戏结束 */
+#pause-screen h2,
+#gameover-screen h2,
+#level-screen h2 {
+    font-size: 42px;
+    color: #4a7c59;
+    margin-bottom: 20px;
+}
+
+#gameover-score,
+#gameover-kills {
+    font-size: 20px;
+    margin: 10px 0;
+    color: #aaa;
+}
+
+#level-title {
+    font-size: 56px !important;
+    color: #ffd700 !important;
+}
+
+#level-desc {
+    font-size: 20px;
+    color: #aaa;
+    margin-top: 10px;
+}
+
+/* 小地图（可选） */
+#minimap {
+    position: absolute;
+    bottom: 15px;
+    left: 15px;
+    width: 150px;
+    height: 150px;
+    border: 2px solid #4a7c59;
+    background: rgba(0, 0, 0, 0.5);
+    border-radius: 5px;
+}
